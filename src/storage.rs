@@ -63,6 +63,8 @@ pub enum StorageKey {
     Delegation(Address, Address, String),
     /// Ordered list of all registered bridge contract addresses.
     BridgeList,
+    /// Index of endorsement IDs made by a specific endorser.
+    EndorserIndex(Address),
     /// Per-claim-type rate limit override (claim_type -> min_issuance_interval).
     ClaimTypeRateLimit(String),
 }
@@ -658,6 +660,24 @@ impl Storage {
         list.push_back(endorsement.clone());
         env.storage().persistent().set(&key, &list);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+
+        // Maintain per-endorser index
+        let endorser_key = StorageKey::EndorserIndex(endorsement.endorser.clone());
+        let mut endorser_list: Vec<Endorsement> = env
+            .storage()
+            .persistent()
+            .get(&endorser_key)
+            .unwrap_or(Vec::new(env));
+        endorser_list.push_back(endorsement.clone());
+        env.storage().persistent().set(&endorser_key, &endorser_list);
+        env.storage().persistent().extend_ttl(&endorser_key, ttl, ttl);
+    }
+
+    pub fn get_endorsements_by_endorser(env: &Env, endorser: &Address) -> Vec<Endorsement> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::EndorserIndex(endorser.clone()))
+            .unwrap_or(Vec::new(env))
     }
 
     pub fn next_proposal_id(env: &Env) -> u32 {
