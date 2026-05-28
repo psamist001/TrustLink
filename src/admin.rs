@@ -3,7 +3,7 @@ use soroban_sdk::{token::TokenClient, Address, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    AdminCouncil, ClaimTypeInfo, Delegation, Error, ExpirationHook, FeeConfig, IssuerMetadata,
+    AdminCouncil, ClaimTypeInfo, ContractConfig, Delegation, Error, ExpirationHook, FeeConfig, IssuerMetadata,
     IssuerStats, IssuerTier, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
 };
 use crate::validation::Validation;
@@ -320,6 +320,38 @@ pub fn unpause(env: &Env, admin: Address) -> Result<(), Error> {
 
 pub fn is_paused(env: &Env) -> bool {
     Storage::is_paused(env)
+}
+
+// -----------------------------------------------------------------------
+// Contract Config
+// -----------------------------------------------------------------------
+
+pub fn set_require_registered_claim_type(env: &Env, admin: Address, require: bool) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| {
+        ContractConfig {
+            ttl_config: Storage::get_ttl_config(env).unwrap_or(TtlConfig { ttl_days: 30 }),
+            limits: Storage::get_limits(env),
+            fee_config: Storage::get_fee_config(env).unwrap_or(FeeConfig {
+                attestation_fee: 0,
+                fee_collector: admin.clone(),
+                fee_token: None,
+            }),
+            require_registered_claim_type: false,
+        }
+    });
+    
+    config.require_registered_claim_type = require;
+    Storage::set_contract_config(env, &config);
+    Ok(())
+}
+
+pub fn get_require_registered_claim_type(env: &Env) -> bool {
+    Storage::get_contract_config(env)
+        .map(|config| config.require_registered_claim_type)
+        .unwrap_or(false)
 }
 
 // -----------------------------------------------------------------------
