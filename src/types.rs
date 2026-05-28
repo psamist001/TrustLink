@@ -131,6 +131,9 @@ pub enum Error {
     AlreadyRevoked = 6,
     /// The attestation has passed its expiration timestamp.
     Expired = 7,
+    /// A counter decrement was attempted when the counter was already zero.
+    /// This indicates a logical invariant violation in the contract state.
+    CounterUnderflow = 8,
 }
 
 impl Attestation {

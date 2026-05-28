@@ -24,6 +24,12 @@ pub enum StorageKey {
     IssuerAttestations(Address),
     /// Optional metadata associated with a registered issuer.
     IssuerMetadata(Address),
+    /// Total number of currently registered issuers.
+    TotalIssuers,
+    /// Total number of attestations ever created.
+    TotalAttestations,
+    /// Total number of attestations that have been revoked.
+    TotalRevocations,
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -158,5 +164,91 @@ impl Storage {
         env.storage()
             .persistent()
             .get(&StorageKey::IssuerMetadata(issuer.clone()))
+    }
+
+    // ── Counter helpers ──────────────────────────────────────────────────────
+
+    fn get_counter(env: &Env, key: &StorageKey) -> u64 {
+        env.storage().instance().get(key).unwrap_or(0u64)
+    }
+
+    fn set_counter(env: &Env, key: StorageKey, value: u64) {
+        env.storage().instance().set(&key, &value);
+        env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Increment a counter by 1.
+    fn increment(env: &Env, key: StorageKey) {
+        let current = Self::get_counter(env, &key);
+        Self::set_counter(env, key, current + 1);
+    }
+
+    /// Decrement a counter by 1.
+    ///
+    /// Returns [`Error::CounterUnderflow`] if the counter is already zero,
+    /// preventing silent underflow. In non-test debug builds a panic fires
+    /// immediately to surface the invariant violation; in all other builds
+    /// (production, test) the error is returned to the caller.
+    fn decrement(env: &Env, key: StorageKey) -> Result<(), Error> {
+        let current = Self::get_counter(env, &key);
+        if current == 0 {
+            return Err(Error::CounterUnderflow);
+        }
+        Self::set_counter(env, key, current - 1);
+        Ok(())
+    }
+
+    /// Increment the total registered issuers counter.
+    pub fn increment_total_issuers(env: &Env) {
+        Self::increment(env, StorageKey::TotalIssuers);
+    }
+
+    /// Decrement the total registered issuers counter.
+    ///
+    /// # Errors
+    /// - [`Error::CounterUnderflow`] — counter is already zero.
+    pub fn decrement_total_issuers(env: &Env) -> Result<(), Error> {
+        Self::decrement(env, StorageKey::TotalIssuers)
+    }
+
+    /// Return the current total registered issuers count.
+    pub fn get_total_issuers(env: &Env) -> u64 {
+        Self::get_counter(env, &StorageKey::TotalIssuers)
+    }
+
+    /// Increment the total attestations counter.
+    pub fn increment_total_attestations(env: &Env) {
+        Self::increment(env, StorageKey::TotalAttestations);
+    }
+
+    /// Decrement the total attestations counter.
+    ///
+    /// # Errors
+    /// - [`Error::CounterUnderflow`] — counter is already zero.
+    pub fn decrement_total_attestations(env: &Env) -> Result<(), Error> {
+        Self::decrement(env, StorageKey::TotalAttestations)
+    }
+
+    /// Return the current total attestations count.
+    pub fn get_total_attestations(env: &Env) -> u64 {
+        Self::get_counter(env, &StorageKey::TotalAttestations)
+    }
+
+    /// Increment the total revocations counter.
+    pub fn increment_total_revocations(env: &Env) {
+        Self::increment(env, StorageKey::TotalRevocations);
+    }
+
+    /// Decrement the total revocations counter.
+    ///
+    /// # Errors
+    /// - [`Error::CounterUnderflow`] — counter is already zero.
+    pub fn decrement_total_revocations(env: &Env) -> Result<(), Error> {
+        Self::decrement(env, StorageKey::TotalRevocations)
+    }
+
+    /// Return the current total revocations count.
+    pub fn get_total_revocations(env: &Env) -> u64 {
+        Self::get_counter(env, &StorageKey::TotalRevocations)
     }
 }

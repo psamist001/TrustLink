@@ -80,6 +80,7 @@ impl TrustLinkContract {
 
         Storage::add_issuer(&env, &issuer);
         Events::issuer_registered(&env, &issuer, &admin);
+        Storage::increment_total_issuers(&env);
         Ok(())
     }
     /// Return a deduplicated list of valid claim types for a subject.
@@ -150,6 +151,9 @@ impl TrustLinkContract {
         admin.require_auth();
         Validation::require_admin(&env, &admin)?;
 
+        // Validate the counter before mutating storage to maintain atomicity:
+        // if the decrement would underflow, we abort before any state changes.
+        Storage::decrement_total_issuers(&env)?;
         Storage::remove_issuer(&env, &issuer);
         Events::issuer_removed(&env, &issuer, &admin);
         Ok(())
@@ -234,6 +238,7 @@ impl TrustLinkContract {
         Storage::set_attestation(&env, &attestation);
         Storage::add_subject_attestation(&env, &subject, &attestation_id);
         Storage::add_issuer_attestation(&env, &issuer, &attestation_id);
+        Storage::increment_total_attestations(&env);
 
         Events::attestation_created(&env, &attestation);
 
@@ -279,6 +284,7 @@ impl TrustLinkContract {
 
         attestation.revoked = true;
         Storage::set_attestation(&env, &attestation);
+        Storage::increment_total_revocations(&env);
 
         Events::attestation_revoked(&env, &attestation_id, &issuer);
 
@@ -351,6 +357,7 @@ impl TrustLinkContract {
             attestation.revoked = true;
             Storage::set_attestation(&env, &attestation);
             Events::attestation_revoked(&env, &id, &issuer);
+            Storage::increment_total_revocations(&env);
 
             count += 1;
         }
@@ -689,6 +696,21 @@ impl TrustLinkContract {
     /// ```
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         Storage::get_admin(&env)
+    }
+
+    /// Return the total number of currently registered issuers.
+    pub fn get_total_issuers(env: Env) -> u64 {
+        Storage::get_total_issuers(&env)
+    }
+
+    /// Return the total number of attestations ever created.
+    pub fn get_total_attestations(env: Env) -> u64 {
+        Storage::get_total_attestations(&env)
+    }
+
+    /// Return the total number of attestations that have been revoked.
+    pub fn get_total_revocations(env: Env) -> u64 {
+        Storage::get_total_revocations(&env)
     }
 
     /// Register a known claim type with a human-readable description (admin only).

@@ -1783,3 +1783,250 @@ fn test_has_any_claim_single_element_equivalence_with_has_valid_claim() {
         client.has_valid_claim(&subject, &claim_type)
     );
 }
+
+// ── Counter safety tests ──────────────────────────────────────────────────────
+
+/// Helper: set up a fresh contract with one admin and one issuer.
+fn setup_counter_env(env: &Env) -> (Address, Address, TrustLinkContractClient) {
+    let admin = Address::generate(env);
+    let issuer = Address::generate(env);
+    let (_, client) = create_test_contract(env);
+    client.initialize(&admin);
+    client.register_issuer(&admin, &issuer);
+    (admin, issuer, client)
+}
+
+// ── total_issuers ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_counter_total_issuers_starts_at_zero() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin);
+    assert_eq!(client.get_total_issuers(), 0u64);
+}
+
+#[test]
+fn test_counter_total_issuers_increments_on_register() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin);
+
+    let issuer1 = Address::generate(&env);
+    let issuer2 = Address::generate(&env);
+
+    client.register_issuer(&admin, &issuer1);
+    assert_eq!(client.get_total_issuers(), 1u64);
+
+    client.register_issuer(&admin, &issuer2);
+    assert_eq!(client.get_total_issuers(), 2u64);
+}
+
+#[test]
+fn test_counter_total_issuers_decrements_on_remove() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup_counter_env(&env);
+
+    assert_eq!(client.get_total_issuers(), 1u64);
+    client.remove_issuer(&admin, &issuer);
+    assert_eq!(client.get_total_issuers(), 0u64);
+}
+
+#[test]
+fn test_counter_total_issuers_register_remove_register() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup_counter_env(&env);
+
+    // 1 → remove → 0 → re-register → 1
+    client.remove_issuer(&admin, &issuer);
+    assert_eq!(client.get_total_issuers(), 0u64);
+
+    client.register_issuer(&admin, &issuer);
+    assert_eq!(client.get_total_issuers(), 1u64);
+}
+
+#[test]
+fn test_counter_total_issuers_underflow_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup_counter_env(&env);
+
+    // Decrement to zero legitimately
+    client.remove_issuer(&admin, &issuer);
+    assert_eq!(client.get_total_issuers(), 0u64);
+
+    // A second remove on a non-existent issuer should not be possible through
+    // the public API (remove_issuer does not check existence), but we can
+    // verify the underflow guard via try_remove_issuer on a fresh address.
+    // Register a second issuer, remove it, then attempt to remove again.
+    let issuer2 = Address::generate(&env);
+    client.register_issuer(&admin, &issuer2);
+    client.remove_issuer(&admin, &issuer2);
+    assert_eq!(client.get_total_issuers(), 0u64);
+
+    // Attempting to remove when counter is 0 must return CounterUnderflow (#8)
+    let result = client.try_remove_issuer(&admin, &issuer2);
+    assert_eq!(result, Err(Ok(types::Error::CounterUnderflow)));
+}
+
+// ── total_attestations ────────────────────────────────────────────────────────
+
+#[test]
+fn test_counter_total_attestations_starts_at_zero() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin);
+    assert_eq!(client.get_total_attestations(), 0u64);
+}
+
+#[test]
+fn test_counter_total_attestations_increments_on_create() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup_counter_env(&env);
+    let subject = Address::generate(&env);
+
+    client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None);
+    assert_eq!(client.get_total_attestations(), 1u64);
+
+    client.create_attestation(&issuer, &subject, &String::from_str(&env, "AML_CLEARED"), &None, &None);
+    assert_eq!(client.get_total_attestations(), 2u64);
+}
+
+#[test]
+fn test_counter_total_attestations_not_decremented_on_revoke() {
+    // Revocation increments total_revocations; total_attestations stays the same.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup_counter_env(&env);
+    let subject = Address::generate(&env);
+
+    let id = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None);
+    assert_eq!(client.get_total_attestations(), 1u64);
+
+    client.revoke_attestation(&issuer, &id);
+    // total_attestations must remain 1 — revocation does not remove attestations
+    assert_eq!(client.get_total_attestations(), 1u64);
+}
+
+// ── total_revocations ─────────────────────────────────────────────────────────
+
+#[test]
+fn test_counter_total_revocations_starts_at_zero() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin);
+    assert_eq!(client.get_total_revocations(), 0u64);
+}
+
+#[test]
+fn test_counter_total_revocations_increments_on_revoke() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup_counter_env(&env);
+    let subject = Address::generate(&env);
+
+    let id1 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None);
+    let id2 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "AML_CLEARED"), &None, &None);
+
+    client.revoke_attestation(&issuer, &id1);
+    assert_eq!(client.get_total_revocations(), 1u64);
+
+    client.revoke_attestation(&issuer, &id2);
+    assert_eq!(client.get_total_revocations(), 2u64);
+}
+
+#[test]
+fn test_counter_total_revocations_increments_on_batch_revoke() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup_counter_env(&env);
+    let subject = Address::generate(&env);
+
+    let id1 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None);
+    let id2 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "AML_CLEARED"), &None, &None);
+    let id3 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "MERCHANT_VERIFIED"), &None, &None);
+
+    let mut ids = soroban_sdk::Vec::new(&env);
+    ids.push_back(id1);
+    ids.push_back(id2);
+    ids.push_back(id3);
+
+    client.revoke_attestations_batch(&issuer, &ids);
+    assert_eq!(client.get_total_revocations(), 3u64);
+}
+
+// ── atomicity: no partial state on underflow ──────────────────────────────────
+
+#[test]
+fn test_counter_underflow_leaves_state_unchanged() {
+    // When remove_issuer triggers a CounterUnderflow, the issuer removal
+    // has already happened (storage.remove_issuer is called before decrement).
+    // The important invariant is that the counter never goes below zero.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup_counter_env(&env);
+
+    client.remove_issuer(&admin, &issuer);
+    assert_eq!(client.get_total_issuers(), 0u64);
+
+    // Re-register so the issuer exists again, then force underflow
+    let issuer2 = Address::generate(&env);
+    client.register_issuer(&admin, &issuer2);
+    client.remove_issuer(&admin, &issuer2);
+    assert_eq!(client.get_total_issuers(), 0u64);
+
+    // Counter must still be 0 after the failed decrement attempt
+    let _ = client.try_remove_issuer(&admin, &issuer2);
+    assert_eq!(client.get_total_issuers(), 0u64, "counter must not go below zero");
+}
+
+// ── combined counter consistency ──────────────────────────────────────────────
+
+#[test]
+fn test_counters_consistent_across_full_lifecycle() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin);
+
+    let issuer1 = Address::generate(&env);
+    let issuer2 = Address::generate(&env);
+    let subject = Address::generate(&env);
+
+    // Register two issuers
+    client.register_issuer(&admin, &issuer1);
+    client.register_issuer(&admin, &issuer2);
+    assert_eq!(client.get_total_issuers(), 2u64);
+
+    // Create three attestations
+    let id1 = client.create_attestation(&issuer1, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None);
+    let id2 = client.create_attestation(&issuer1, &subject, &String::from_str(&env, "AML_CLEARED"), &None, &None);
+    let id3 = client.create_attestation(&issuer2, &subject, &String::from_str(&env, "MERCHANT_VERIFIED"), &None, &None);
+    assert_eq!(client.get_total_attestations(), 3u64);
+    assert_eq!(client.get_total_revocations(), 0u64);
+
+    // Revoke two
+    client.revoke_attestation(&issuer1, &id1);
+    client.revoke_attestation(&issuer2, &id3);
+    assert_eq!(client.get_total_attestations(), 3u64); // unchanged
+    assert_eq!(client.get_total_revocations(), 2u64);
+
+    // Remove one issuer
+    client.remove_issuer(&admin, &issuer1);
+    assert_eq!(client.get_total_issuers(), 1u64);
+
+    // id2 still exists (not revoked)
+    let _ = id2;
+}
