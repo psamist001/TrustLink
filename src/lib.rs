@@ -34,6 +34,9 @@ use crate::types::{
     AuditEntry, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, HealthStatus,
     IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
     RateLimitConfig, StorageLimits,
+    Attestation, AttestationRequest, AttestationStatus, AttestationTemplate, AuditEntry, Delegation, Error,
+    ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
+    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits,
 };
 use crate::validation::Validation;
 
@@ -298,6 +301,10 @@ impl TrustLinkContract {
 
     pub fn revoke_delegation(env: Env, issuer: Address, delegate: Address, claim_type: String) -> Result<(), Error> {
         admin::revoke_delegation(&env, issuer, delegate, claim_type)
+    }
+
+    pub fn list_delegations_by_delegator(env: Env, delegator: Address, start: u32, limit: u32) -> Vec<Delegation> {
+        admin::list_delegations_by_delegator(&env, delegator, start, limit)
     }
 
     // -----------------------------------------------------------------------
@@ -590,6 +597,10 @@ impl TrustLinkContract {
 
     pub fn reject_request(env: Env, issuer: Address, request_id: String, reason: Option<String>) -> Result<(), Error> {
         request::reject_request(&env, issuer, request_id, reason)
+    }
+
+    pub fn cancel_request(env: Env, subject: Address, request_id: String) -> Result<(), Error> {
+        request::cancel_request(&env, subject, request_id)
     }
 
     pub fn get_pending_requests(env: Env, issuer: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {
