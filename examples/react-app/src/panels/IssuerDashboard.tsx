@@ -1,17 +1,16 @@
 import { useState, useEffect } from "react";
 import {
-  getIssuerStats,
   getIssuerAttestations,
   getExpiringAttestations,
-  renewAttestation,
+  getIssuerStats,
   Attestation,
-  IssuerStats,
 } from "../contract";
+import { useIssuerStats } from "../../../../sdk/react/src";
 
 interface Props { address: string; }
 
 export default function IssuerDashboard({ address }: Props) {
-  const [stats, setStats] = useState<IssuerStats | null>(null);
+  const { data: stats, loading: statsLoading, error: statsError } = useIssuerStats(address, getIssuerStats);
   const [recent, setRecent] = useState<Attestation[]>([]);
   const [expiring, setExpiring] = useState<Attestation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,47 +18,48 @@ export default function IssuerDashboard({ address }: Props) {
   const [renewing, setRenewing] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    loadDashboard();
-  }, [address]);
-
-  async function loadDashboard() {
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    try {
-      const [s, r, e] = await Promise.all([
-        getIssuerStats(address),
-        getIssuerAttestations(address, 0, 10),
-        getExpiringAttestations(address, 30),
-      ]);
-      setStats(s);
-      setRecent(r);
-      setExpiring(e);
-    } catch (err: unknown) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleRenew(attestationId: string, currentExpiration: bigint) {
-    setRenewing((prev) => new Set(prev).add(attestationId));
-    try {
-      const oneYear = BigInt(365 * 24 * 60 * 60);
-      const newExpiration = currentExpiration + oneYear;
-      await renewAttestation(address, attestationId, newExpiration);
-      await loadDashboard();
-    } catch (err: unknown) {
-      alert(`Failed to renew: ${(err as Error).message}`);
-    } finally {
-      setRenewing((prev) => {
-        const next = new Set(prev);
-        next.delete(attestationId);
-        return next;
+    Promise.all([
+      getIssuerAttestations(address, 0, 10),
+      getExpiringAttestations(address, 30),
+    ])
+      .then(([r, e]) => {
+        if (!cancelled) {
+          setRecent(r);
+          setExpiring(e);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError((err as Error).message);
+          setLoading(false);
+        }
       });
-    }
+    return () => { cancelled = true; };
+  }, [address]);
+
+  function handleRefresh() {
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      getIssuerAttestations(address, 0, 10),
+      getExpiringAttestations(address, 30),
+    ])
+      .then(([r, e]) => {
+        setRecent(r);
+        setExpiring(e);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        setError((err as Error).message);
+        setLoading(false);
+      });
   }
 
-  if (loading) {
+  if (statsLoading || loading) {
     return (
       <div className="panel">
         <h2>Issuer Dashboard</h2>
@@ -68,11 +68,11 @@ export default function IssuerDashboard({ address }: Props) {
     );
   }
 
-  if (error) {
+  if (statsError || error) {
     return (
       <div className="panel">
         <h2>Issuer Dashboard</h2>
-        <div className="alert alert-error">{error}</div>
+        <div className="alert alert-error">{statsError?.message ?? error}</div>
       </div>
     );
   }
@@ -179,7 +179,7 @@ export default function IssuerDashboard({ address }: Props) {
       </div>
 
       <div style={{ marginTop: "2rem", textAlign: "center" }}>
-        <button className="btn btn-outline" onClick={loadDashboard}>
+        <button className="btn btn-outline" onClick={handleRefresh}>
           Refresh
         </button>
       </div>
