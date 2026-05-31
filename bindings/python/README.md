@@ -5,7 +5,13 @@ Python SDK for the TrustLink on-chain attestation contract on Stellar.
 ## Installation
 
 ```bash
-pip install trustlink-contract
+pip install trustlink-sdk
+```
+
+Requires Python 3.8+. For async support (FastAPI, aiohttp):
+
+```bash
+pip install "trustlink-sdk[async]"
 ```
 
 ## Quick Start
