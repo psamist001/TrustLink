@@ -2481,6 +2481,32 @@ fn test_error_already_initialized() {
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
+/// FINDING-001: a second `initialize()` call from ANY address (not just the
+/// original admin) must be rejected before any state mutation occurs.
+#[test]
+fn test_second_initialize_from_any_address_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+
+    // First initialization establishes `admin` as the sole admin.
+    client.initialize(&admin, &None);
+
+    // A second initialize from a different (arbitrary) address is rejected.
+    let result = client.try_initialize(&attacker, &None);
+    assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+
+    // No state was mutated: the admin council is unchanged and the attacker
+    // was never added as an admin.
+    assert_eq!(client.get_admin(), admin);
+    let council = client.get_admin_council();
+    assert_eq!(council.len(), 1);
+    assert_eq!(council.get(0).unwrap(), admin);
+}
+
 #[test]
 fn test_error_not_initialized() {
     let env = Env::default();
